@@ -1,7 +1,8 @@
 import random
 from typing import List
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Query, status
+from fastapi.responses import JSONResponse
 
 from src.api.models import ErrorResponse, Joke
 
@@ -84,30 +85,31 @@ def get_random_joke(
     Returns:
         A randomly selected joke matching the subject.
 
-    Raises:
-        HTTPException(400): If the subject is missing or empty/whitespace.
-        HTTPException(404): If no jokes match the provided subject.
+    Notes:
+        - Missing/invalid `subject` (including empty string) is handled globally via the
+          RequestValidationError handler in src.api.main, which returns 400 with a top-level payload.
+        - Whitespace-only values (e.g. subject="   ") pass min_length validation, so we enforce
+          a top-level 400 response here too.
+        - If no jokes match, return a top-level 404 payload (not nested under `detail`).
     """
-    # Query(..., min_length=1) already enforces presence + non-empty,
-    # but we also guard against whitespace-only values for a clearer error payload.
     normalized = _normalize_subject(subject)
     if not normalized:
-        raise HTTPException(
+        return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=ErrorResponse(
-                code="INVALID_SUBJECT",
-                message="Query parameter `subject` must be provided and non-empty.",
-            ).model_dump(),
+            content={
+                "code": "INVALID_REQUEST",
+                "message": "Query parameter `subject` is required and must be a non-empty string.",
+            },
         )
 
     matching = [j for j in _JOKES if _normalize_subject(j.subject) == normalized]
     if not matching:
-        raise HTTPException(
+        return JSONResponse(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=ErrorResponse(
-                code="NO_JOKES_FOR_SUBJECT",
-                message=f"No jokes found for subject '{subject}'.",
-            ).model_dump(),
+            content={
+                "code": "NO_JOKES_FOR_SUBJECT",
+                "message": f"No jokes found for subject '{subject}'",
+            },
         )
 
     return random.choice(matching)
